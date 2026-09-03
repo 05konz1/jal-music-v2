@@ -51,7 +51,7 @@ client.on('messageCreate', async (message) => {
             return message.channel.send(`🎶 Now Playing: **${track.title}**`);
         } catch (e) {
             console.error(e);
-            return message.channel.send('❌ Something went wrong trying to play that track. Check your Render logs to see the exact error.');
+            return message.channel.send('❌ Something went wrong trying to play that track.');
         }
     }
 
