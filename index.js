@@ -1,6 +1,6 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const { Player } = require('discord-player');
-const { DefaultExtractors } = require('@discord-player/extractor');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, entersState, VoiceConnectionStatus } = require('@discordjs/voice');
+const play = require('play-dl');
 const http = require('http');
 
 const client = new Client({
@@ -12,16 +12,11 @@ const client = new Client({
     ]
 });
 
-const player = new Player(client);
-
-// Load default extractors (YouTube, Spotify, SoundCloud search support)
-async function initializePlayer() {
-    await player.extractors.loadMulti(DefaultExtractors);
-}
-initializePlayer();
+let connection = null;
+let player = createAudioPlayer();
 
 client.on('ready', () => {
-    console.log(`[READY] ${client.user.tag} is online and ready to play music!`);
+    console.log(`[READY] ${client.user.tag} is online!`);
 });
 
 client.on('messageCreate', async (message) => {
@@ -36,50 +31,55 @@ client.on('messageCreate', async (message) => {
     // PLAY COMMAND
     if (command === 'play') {
         const query = args.join(' ');
-        if (!query) return message.reply('Please provide a song name or URL!');
+        if (!query) return message.reply('Please provide a YouTube URL or search query!');
 
         const channel = message.member?.voice?.channel;
         if (!channel) return message.reply('You need to join a voice channel first!');
 
         try {
             await message.reply(`Searching for: \`${query}\`...`);
-            
-            const { track } = await player.play(channel, query, {
-                requestedBy: message.author
-            });
 
-            return message.channel.send(`🎶 Now Playing: **${track.title}**`);
+            // Connect to voice channel and keep it persistent
+            if (!connection || connection.state.status === VoiceConnectionStatus.Disconnected) {
+                connection = joinVoiceChannel({
+                    channelId: channel.id,
+                    guildId: channel.guild.id,
+                    adapterCreator: channel.guild.voiceAdapterCreator,
+                    selfDeaf: false
+                });
+            }
+
+            connection.subscribe(player);
+
+            // Fetch audio stream using play-dl
+            let streamData = await play.stream(query);
+            let resource = createAudioResource(streamData.stream, { type: streamData.type });
+
+            player.play(resource);
+            return message.channel.send(`🎶 Now Playing your track!`);
         } catch (e) {
             console.error(e);
             return message.channel.send('❌ Something went wrong trying to play that track.');
         }
     }
 
-    // STOP COMMAND (Stops music & clears queue, but STAYS in voice channel)
+    // STOP COMMAND (Stops music but stays in voice channel 24/7)
     if (command === 'stop') {
-        const queue = player.nodes.get(message.guild.id);
-        if (!queue || !queue.node.isPlaying()) {
-            return message.reply('❌ There is no music playing right now, but I am staying in the voice channel!');
-        }
-
-        queue.tracks.clear();
-        queue.node.stop();
-        return message.reply('🛑 Stopped the music and cleared the queue! I am staying in the voice channel.');
+        player.stop();
+        return message.reply('🛑 Stopped the music, but I am staying in the voice channel!');
     }
 
-    // LEAVE COMMAND (Forces the bot to disconnect from the voice channel)
+    // LEAVE COMMAND (Disconnects the bot)
     if (command === 'leave') {
-        const queue = player.nodes.get(message.guild.id);
-        if (!queue) {
-            return message.reply('❌ I am not in a voice channel!');
+        if (connection) {
+            connection.destroy();
+            connection = null;
         }
-
-        queue.delete();
         return message.reply('👋 Left the voice channel.');
     }
 });
 
-// Dummy web server to satisfy Render's port requirement
+// Simple web server for Render
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('JAL Music v2 is online!');
