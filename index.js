@@ -1,5 +1,5 @@
 const { Client, GatewayIntentBits } = require('discord.js');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, entersState, VoiceConnectionStatus } = require('@discordjs/voice');
+const { joinVoiceChannel, createAudioPlayer, createAudioResource, VoiceConnectionStatus } = require('@discordjs/voice');
 const play = require('play-dl');
 const http = require('http');
 
@@ -39,6 +39,14 @@ client.on('messageCreate', async (message) => {
         try {
             await message.reply(`Searching for: \`${query}\`...`);
 
+            // Search YouTube safely to get a direct video URL
+            let searchResult = await play.search(query, { limit: 1 });
+            if (!searchResult || searchResult.length === 0) {
+                return message.channel.send('❌ No results found for that query.');
+            }
+
+            const videoUrl = searchResult[0].url;
+
             // Connect to voice channel and keep it persistent
             if (!connection || connection.state.status === VoiceConnectionStatus.Disconnected) {
                 connection = joinVoiceChannel({
@@ -51,12 +59,12 @@ client.on('messageCreate', async (message) => {
 
             connection.subscribe(player);
 
-            // Fetch audio stream using play-dl
-            let streamData = await play.stream(query);
+            // Fetch audio stream from the resolved URL
+            let streamData = await play.stream(videoUrl);
             let resource = createAudioResource(streamData.stream, { type: streamData.type });
 
             player.play(resource);
-            return message.channel.send(`🎶 Now Playing your track!`);
+            return message.channel.send(`🎶 Now Playing: **${searchResult[0].title}**`);
         } catch (e) {
             console.error(e);
             return message.channel.send('❌ Something went wrong trying to play that track.');
